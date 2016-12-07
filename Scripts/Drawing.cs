@@ -16,6 +16,7 @@ using System.Collections;
 
 namespace SpaceEngineersIngameScript.Scripts
 {
+
     /// <summary>
     /// Implements drawing a wireframe 3d scene.
     /// </summary>
@@ -210,7 +211,14 @@ namespace SpaceEngineersIngameScript.Scripts
     }
 
     /// <summary>
-    /// Implements a vector drawing canvas. Also implements depth buffering.
+    /// Implements a vector drawing canvas. Also implements
+    /// depth buffering. Note: The ingame LCD block must use
+    /// the MonospaceFont.
+    ///
+    /// This class contains code adapted from BaconFist's BaconDraw project.
+    /// Copyright 2016 Thomas Klose <thomas@bratler.net>
+    /// https://github.com/BaconFist/SpaceEngineersIngameScript
+    ///
     /// </summary>
     public class Canvas
     {
