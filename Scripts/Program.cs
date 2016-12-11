@@ -47,7 +47,7 @@ namespace SpaceEngineersIngameScript.Scripts
             if (dServer != null) { dServer.TryRun("L" + message); }
         }
 
-        public Program()
+        public LIDARTrackerProgram()
         {
             Echo("Init!");
             lidarsystem = new LidarTracker(Me.CubeGrid);

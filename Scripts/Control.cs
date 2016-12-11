@@ -14,14 +14,212 @@ using SpaceEngineers.Game.ModAPI.Ingame; // SpacenEngineers.Game.dll
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Collections;
 
+using SpaceEngineersIngameScript.Scripts;
+
 namespace SpaceEngineersIngameScript.Scripts
 {
 
-    /// <summary>
-    /// Class for commanding a group of IMyGyro objects.  Note: If any of the
-    /// Gyroscopes are removed/etc then the class instance should be thrown
-    /// away and a new one constructed.
-    /// </summary>
+    public class Autopilot
+    {
+        public Action<string> LogDelegate;
+        private void Log(string msg) { LogDelegate?.Invoke(msg); }
+
+        private IMyCubeGrid Grid;
+
+        public PositionController PC;
+        public AttitudeController AC;
+
+        private PositionPlanner PP;
+
+        //private double UpdateFrequency = 60.0; 
+        private double UpdatePeriod = 1 / 60.0;
+
+        private List<PositionPlanner.Waypoint> WaypointList;
+
+        public Autopilot(List<IMyThrust> thrusters, List<IMyGyro> gyros, IMyCubeGrid grid)
+        {
+            PC = new PositionController(thrusters, grid);
+            AC = new AttitudeController(gyros, grid);
+            PP = new PositionPlanner(new PositionPlanner.Waypoint(PC.CurrentPosition(), Vector3D.Zero));
+            Grid = grid;
+            WaypointList = new List<PositionPlanner.Waypoint>();
+            PP.waypoints = new StackAsEnumerator<PositionPlanner.Waypoint>(WaypointList);
+        }
+        public void Update()
+        {
+            Vector3D cmdP = PP.NextPosition(UpdatePeriod);
+            Log("CmdP: " + cmdP.ToString("0.00"));
+            Vector3? errP = PC.Update(cmdP);
+            Log("ErrP: " + (errP.HasValue ? errP.Value.ToString("0.00") : "null"));
+            float? errA = AC.Update(Grid.WorldMatrix);
+            Log("ErrA: " + (errA.HasValue ? errA.Value.ToString("0.00") : "null"));
+        }
+        public void AddPosition(Vector3D pos)
+        {
+            WaypointList.Add(new PositionPlanner.Waypoint(pos, Vector3D.Zero));
+        }
+    }
+
+    public class StackAsEnumerator<T> : IEnumerator<T>
+    {
+        public StackAsEnumerator(IList<T> wrapped)
+        { Wrapped = wrapped; }
+        private bool initialized = false;
+        private IList<T> Wrapped;
+
+        public T Current
+        { get { return Wrapped[0]; } }
+
+        object IEnumerator.Current
+        { get { return Current; } }
+
+        public void Dispose() { }
+
+        public bool MoveNext()
+        {
+            if (Wrapped.Count > 0)
+            {
+                if (initialized)
+                    Wrapped.RemoveAt(0);
+                initialized = true;
+                return Wrapped.Count > 0;
+            }
+            initialized = false;
+            return false;
+        }
+
+        public void Reset()
+        { }
+    }
+
+    public class PositionPlanner
+    {
+
+        public class Waypoint
+        {
+            public readonly Vector3D Position;
+            public readonly Vector3D Velocity;
+            public Waypoint(Vector3D position, Vector3D velocity)
+            {
+                Position = position;
+                Velocity = velocity;
+            }
+            public Vector3D Extrapolate(double dt) { return dt * Velocity + Position; }
+            public Waypoint ExtrapolatedWaypoint(double dt) { return new Waypoint(Extrapolate(dt), Velocity); }
+        }
+        public class PathSegment
+        {
+            public readonly Waypoint Initial;
+            public readonly Waypoint Final;
+            public readonly double dt;
+            public readonly Vector3D dV;
+            public readonly Vector3D dP;
+            public PathSegment(Waypoint initial, Waypoint final, double MaxMidVelocity, double MidAcceleration)
+            {
+                Initial = initial;
+                Final = final;
+                dP = Final.Position - Initial.Position;
+                dV = Final.Velocity - Initial.Velocity;
+                double AccelDist = 0.5 * dP.Length();
+                double v = (Final.Velocity + Initial.Velocity).Dot(dP) / dP.Length();
+                double PeakMidVelocity = Math.Min(MaxMidVelocity, Math.Sqrt(Math.Abs(AccelDist * MidAcceleration) + v * v));
+                double AvgVelocity = .5 * (v + PeakMidVelocity);
+                dt = (AccelDist > 0) ? 2 * AccelDist / AvgVelocity : .001;
+            }
+            public Vector3D Position(double t)
+            {
+                double interp = Interp(t);
+                return interp * Final.Extrapolate(t - dt) + (1.0 - interp) * Initial.Extrapolate(t);
+            }
+            public Vector3D Velocity(double t)
+            {
+                double interp = Interp(t);
+                return Initial.Velocity * (1.0 - interp) + interp * Final.Velocity +
+                         dInterp(t) * (Final.Extrapolate(t - dt) - Initial.Extrapolate(t));
+            }
+            public Vector3D Acceleration(double t)
+            {
+                return 2.0 * Interp(t) * dV + ddInterp(t) * (Final.Extrapolate(t - dt) - Initial.Extrapolate(t));
+            }
+            public Waypoint InterpolateWaypoint(double t)
+            { return new Waypoint(Position(t), Velocity(t)); }
+            private double Interp(double t) { return (1.0 - Math.Cos(Math.PI * t / dt)) * .5; }
+            private double dInterp(double t) { double c = Math.PI / dt; return 0.5 * c * Math.Sin(c * t); }
+            private double ddInterp(double t) { double c = Math.PI / dt; return 0.5 * c * c * Math.Cos(c * t); }
+        }
+
+        public double PlannerAcceleration = 10;
+        public double PlannerVelocity = 90;
+
+        public IEnumerator<Waypoint> waypoints;
+        private PathSegment CurrentSegment;
+        private Waypoint LastWaypoint;
+        double CurrentSegmentTime;
+
+        public PositionPlanner(Waypoint init)
+        { Reset(init); }
+
+        public Vector3D NextPosition(double dt)
+        {
+            CurrentSegmentTime += dt;
+            while (true)
+                if (CurrentSegment != null)
+                {
+                    if (CurrentSegmentTime > CurrentSegment.dt)
+                        if (waypoints != null && waypoints.MoveNext())
+                            AdvanceSegment();
+                        else
+                        {
+                            LastWaypoint = CurrentSegment.Final;
+                            CurrentSegmentTime -= CurrentSegment.dt;
+                            CurrentSegment = null;
+                        }
+                    else
+                        return CurrentSegment.Position(CurrentSegmentTime);
+                }
+                else
+                {
+                    if (waypoints != null && waypoints.MoveNext())
+                        AdvanceSegment(); //new waypoint availabile, make a segement from here to the next waypoint  
+                    else //no next waypoint, contine with the last waypoint we had  
+                        return LastWaypoint.Extrapolate(CurrentSegmentTime);
+                }
+        }
+        void AdvanceSegment()
+        {
+            if (CurrentSegment != null)
+            {
+                if (CurrentSegmentTime > CurrentSegment.dt)
+                {
+                    CurrentSegmentTime -= CurrentSegment.dt;
+                    LastWaypoint = CurrentSegment.Final;
+                }
+                else
+                {
+                    LastWaypoint = CurrentSegment.InterpolateWaypoint(CurrentSegmentTime);
+                    CurrentSegmentTime = 0;
+                }
+            }
+            else
+            {
+                LastWaypoint = LastWaypoint.ExtrapolatedWaypoint(CurrentSegmentTime);
+                CurrentSegmentTime = 0.0;
+            }
+            CurrentSegment = new PathSegment(LastWaypoint, waypoints.Current, PlannerVelocity, PlannerAcceleration);
+
+        }
+        public void Reset(Waypoint init)
+        {
+            LastWaypoint = init;
+            CurrentSegmentTime = 0.0;
+        }
+    }
+
+    /// <summary>  
+    /// Class for commanding a group of IMyGyro objects.  Note: If any of the  
+    /// Gyroscopes are removed/etc then the class instance should be thrown  
+    /// away and a new one constructed.  
+    /// </summary>  
     public class GyroGroup
     {
         List<IMyGyro> gyroscopes = null;
@@ -37,10 +235,10 @@ namespace SpaceEngineersIngameScript.Scripts
 
         const float RPM2RadPS = (float)(Math.PI / 30);
 
-        /// <summary>
-        /// Constructs a GyroGroup using a list of IMyGyro objects. All gyros must have the same CubeGrid.
-        /// </summary>
-        /// <param name="gyros"></param>
+        /// <summary>  
+        /// Constructs a GyroGroup using a list of IMyGyro objects. All gyros must have the same CubeGrid.  
+        /// </summary>  
+        /// <param name="gyros"></param>  
         public GyroGroup(List<IMyGyro> gyros)
         {
             gyroscopes = gyros;
@@ -110,64 +308,64 @@ namespace SpaceEngineersIngameScript.Scripts
 
     }
 
-    /// <summary>
-    /// Class for controlling the attitude of a CubeGrid using gyroscopes
-    /// </summary>
+    /// <summary>  
+    /// Class for controlling the attitude of a CubeGrid using gyroscopes  
+    /// </summary>  
     public class AttitudeController
     {
         readonly IMyCubeGrid Grid;
         GyroGroup Gyros;
-        /// <summary>
-        /// PID proportional gain (rad/s per rad)
-        /// </summary>
+        /// <summary>  
+        /// PID proportional gain (rad/s per rad)  
+        /// </summary>  
         public float Gain = 1.0f;
-        /// <summary>
-        /// PID derivative gain divided by PID Proportional gain
-        /// </summary>
+        /// <summary>  
+        /// PID derivative gain divided by PID Proportional gain  
+        /// </summary>  
         public float DGain = 0.1f;
-        /// <summary>
-        /// PID Integral gain divided by PID Proportional gain
-        /// </summary>
+        /// <summary>  
+        /// PID Integral gain divided by PID Proportional gain  
+        /// </summary>  
         public float IGain = 0.1f;
-        /// <summary>
-        /// Maximum Integral term (max commanded rotational velocity vector length)
-        /// </summary>
+        /// <summary>  
+        /// Maximum Integral term (max commanded rotational velocity vector length)  
+        /// </summary>  
         public float IMax = 1.0f;
-        /// <summary>
-        /// Maximum following error (in radians) before the controller faults out (disables self).
-        /// Use a path planner to smoothly command a move between orientations (using SLERP).
-        /// Don't just increase this or the controller will saturate the actuator and oscillate.
-        /// </summary>
+        /// <summary>  
+        /// Maximum following error (in radians) before the controller faults out (disables self).  
+        /// Use a path planner to smoothly command a move between orientations (using SLERP).  
+        /// Don't just increase this or the controller will saturate the actuator and oscillate.  
+        /// </summary>  
         public float ErrMax = .1f;
-        /// <summary>
-        /// Rate at which the Update function is called. This rate should be constant while Enabled!
-        /// </summary>
+        /// <summary>  
+        /// Rate at which the Update function is called. This rate should be constant while Enabled!  
+        /// </summary>  
         public float UpdateFrequency = 60.0f;
-        /// <summary>
-        /// Allows enabling/disabling the control system.
-        /// </summary>
+        /// <summary>  
+        /// Allows enabling/disabling the control system.  
+        /// </summary>  
         public bool Enabled
         {
             get { return _enabled; }
             set { if (value) Enable(); else Disable(); _enabled = value; }
         }
         bool _enabled = false;
-        /// <summary>
-        /// Creates an an AttitudeController using a list of gyroscopes, and their cubegrid.
-        /// All the gyroscopes must be on the same cubegrid!
-        /// </summary>
-        /// <param name="gyros"></param>
-        /// <param name="grid"></param>
+        /// <summary>  
+        /// Creates an an AttitudeController using a list of gyroscopes, and their cubegrid.  
+        /// All the gyroscopes must be on the same cubegrid!  
+        /// </summary>  
+        /// <param name="gyros"></param>  
+        /// <param name="grid"></param>  
         public AttitudeController(List<IMyGyro> gyros, IMyCubeGrid grid)
         {
             Gyros = new GyroGroup(gyros);
             Grid = grid;
         }
-        /// <summary>
-        /// Updates the control system using the next target orientation. This is useful for 
-        /// </summary>
-        /// <param name="target">WorldMatrix describing the target orientation of the CubeGrid in space.</param>
-        /// <returns>Angle between the target orientation and the current orientation (in radians). Returns null if not Enabled</returns>
+        /// <summary>  
+        /// Updates the control system using the next target orientation. This is useful for   
+        /// </summary>  
+        /// <param name="target">WorldMatrix describing the target orientation of the CubeGrid in space.</param>  
+        /// <returns>Angle between the target orientation and the current orientation (in radians). Returns null if not Enabled</returns>  
         public float? Update(MatrixD target)
         {
             MatrixD orientation = Grid.WorldMatrix.GetOrientation();
@@ -176,18 +374,18 @@ namespace SpaceEngineersIngameScript.Scripts
 
             return Update(errq);
         }
-        /// <summary>
-        /// Updates the control system using the next target orientation. This
-        /// overload does not fully constrain the orientation, and only aligns
-        /// an axis on the CubeGrid to an axis in the World. This is useful for
-        /// when you care about pointing something in a certian direction
-        /// (e.g. pointing a gun at a target, or pointing a thruster against gravity)
-        /// </summary>
-        /// <param name="axis"></param>
-        /// <param name="target"></param>
-        /// <returns>Angle between the target orientation and the current orientation (in radians). Returns null if not Enabled</returns>
+        /// <summary>  
+        /// Updates the control system using the next target orientation. This  
+        /// overload does not fully constrain the orientation, and only aligns  
+        /// an axis on the CubeGrid to an axis in the World. This is useful for  
+        /// when you care about pointing something in a certian direction  
+        /// (e.g. pointing a gun at a target, or pointing a thruster against gravity)  
+        /// </summary>  
+        /// <param name="axis"></param>  
+        /// <param name="target"></param>  
+        /// <returns>Angle between the target orientation and the current orientation (in radians). Returns null if not Enabled</returns>  
         public float? Update(Vector3 axis, Vector3D target)
-        {//axis is in Grid coordinates, target is in World coordinates  
+        {//axis is in Grid coordinates, target is in World coordinates    
             Vector3 offset = target - Grid.GetPosition();
             Quaternion err = Quaternion.CreateFromTwoVectors(target, Vector3.TransformNormal(axis, Grid.WorldMatrix));
             return Update(err);
@@ -219,16 +417,16 @@ namespace SpaceEngineersIngameScript.Scripts
             prevCommand = Command;
         }
         static void Clamp(ref Vector3 v, float max)
-        { //Clamp a vector to maintain the direction, but impose a maximum magnitude 
+        { //Clamp a vector to maintain the direction, but impose a maximum magnitude   
             if (v.Length() > max) { v.Normalize(); v = v * max; }
         }
         void Enable() { Gyros.Enable(); ICommand = Vector3.Zero; prevCommand = null; }
         void Disable() { Gyros.Disable(); ICommand = Vector3.Zero; prevCommand = null; }
-        /// <summary>
-        /// Sets the PID gains according to the Ziegler-Nichols method.
-        /// </summary>
-        /// <param name="G"></param>
-        /// <param name="T"></param>
+        /// <summary>  
+        /// Sets the PID gains according to the Ziegler-Nichols method.  
+        /// </summary>  
+        /// <param name="G"></param>  
+        /// <param name="T"></param>  
         public void SetGainZieglerNichols(float G, float T)
         {
             Gain = .6f * G;
@@ -238,11 +436,11 @@ namespace SpaceEngineersIngameScript.Scripts
         }
     }
 
-    /// <summary>
-    /// Class for commanding a group of thrusters. Note: If any of the
-    /// Thrusters are removed/etc then the class instance should be thrown
-    /// away and a new one constructed.
-    /// </summary>
+    /// <summary>  
+    /// Class for commanding a group of thrusters. Note: If any of the  
+    /// Thrusters are removed/etc then the class instance should be thrown  
+    /// away and a new one constructed.  
+    /// </summary>  
     public class ThrusterGroup
     {
         List<IMyThrust> Thrusters;
@@ -272,10 +470,10 @@ namespace SpaceEngineersIngameScript.Scripts
                 thr.SetValueFloat("Override", val);
             }
         }
-        /// <summary>
-        /// Sets the 3D thrust vector of the group of thrusters.
-        /// </summary>
-        /// <param name="thrust"></param>
+        /// <summary>  
+        /// Sets the 3D thrust vector of the group of thrusters.  
+        /// </summary>  
+        /// <param name="thrust"></param>  
         public void SetThrust(Vector3 thrust)
         {
             SetThrustAxis(Base6Directions.Axis.LeftRight, thrust.X);
@@ -296,20 +494,20 @@ namespace SpaceEngineersIngameScript.Scripts
             foreach (var thr in thrusters)
                 SetThrusterOverride(thr, thrust * thr.MaxThrust / MaxThrust(dir));
         }
-        /// <summary>
-        /// Gets the maximum thrust in each direction of the CubeGrid.
-        /// </summary>
-        /// <param name="dir"></param>
-        /// <returns></returns>
+        /// <summary>  
+        /// Gets the maximum thrust in each direction of the CubeGrid.  
+        /// </summary>  
+        /// <param name="dir"></param>  
+        /// <returns></returns>  
         public float MaxThrust(Base6Directions.Direction dir) { return max_thrust[(int)(dir)]; }
     }
 
-    /// <summary>
-    /// Class for controlling the position of a CubeGrid using
-    /// Thrusters. Note: the controller will position the Center
-    /// of Mass of the grid at the commanded position (as
-    /// calculated at class construction).
-    /// </summary>
+    /// <summary>  
+    /// Class for controlling the position of a CubeGrid using  
+    /// Thrusters. Note: the controller will position the Center  
+    /// of Mass of the grid at the commanded position (as  
+    /// calculated at class construction).  
+    /// </summary>  
     public class PositionController
     {
         public Action<String> LogDelegate = null;
@@ -317,31 +515,31 @@ namespace SpaceEngineersIngameScript.Scripts
         readonly IMyCubeGrid Grid;
         ThrusterGroup Thrusters;
         public readonly Matrix I;
-        /// <summary>
-        /// PID Proportional gain. (in m/s^2 per m)
-        /// </summary>
+        /// <summary>  
+        /// PID Proportional gain. (in m/s^2 per m)  
+        /// </summary>  
         public float Gain = 1.0f;
-        /// <summary>
-        /// PID Derivative gain divided by PID proportional gain.
-        /// </summary>
+        /// <summary>  
+        /// PID Derivative gain divided by PID proportional gain.  
+        /// </summary>  
         public float DGain = .5f;
-        /// <summary>
-        /// PID Integral gain divided by PID proportional gain.
-        /// </summary>
+        /// <summary>  
+        /// PID Integral gain divided by PID proportional gain.  
+        /// </summary>  
         public float IGain = 0.1f;
-        /// <summary>
-        /// Maximum Integral term (m/s^2)
-        /// </summary>
+        /// <summary>  
+        /// Maximum Integral term (m/s^2)  
+        /// </summary>  
         public float IMax = 1.0f;
-        /// <summary>
-        /// Maximum following error (in meters) before the controller faults out (disables self).
-        /// Use a path planner to smoothly command a move between orientations (using ).
-        /// Don't just increase this or the controller will saturate the actuator and oscillate.
-        /// </summary>
+        /// <summary>  
+        /// Maximum following error (in meters) before the controller faults out (disables self).  
+        /// Use a path planner to smoothly command a move between orientations (using ).  
+        /// Don't just increase this or the controller will saturate the actuator and oscillate.  
+        /// </summary>  
         public float ErrMax = 1f;
-        /// <summary>
-        /// Allows enabling/disabling the control system.
-        /// </summary>
+        /// <summary>  
+        /// Allows enabling/disabling the control system.  
+        /// </summary>  
         public bool Enabled
         {
             get { return _enabled; }
@@ -355,15 +553,15 @@ namespace SpaceEngineersIngameScript.Scripts
             Grid = grid;
             I = Inertia(grid);
         }
-        Vector3 CoMPosition() { return Vector3D.Transform(I.Translation, Grid.WorldMatrix); }
-        /// <summary>
-        /// Updates the control system using the next target position.
-        /// </summary>
-        /// <param name="target"></param>
-        /// <returns>Following error (in meters) (returns null if not Enabled)</returns>
-        Vector3? Update(Vector3D target)
+        public Vector3 CurrentPosition() { return Vector3D.Transform(I.Translation, Grid.WorldMatrix); }
+        /// <summary>  
+        /// Updates the control system using the next target position.  
+        /// </summary>  
+        /// <param name="target"></param>  
+        /// <returns>Following error (in meters) (returns null if not Enabled)</returns>  
+        public Vector3? Update(Vector3D target)
         {
-            Vector3 err = target - CoMPosition();
+            Vector3 err = target - CurrentPosition();
             Vector3 cmd = -Gain * err;
             if (Enabled & err.Length() > ErrMax) Enabled = false;
             if (Enabled)
@@ -381,24 +579,26 @@ namespace SpaceEngineersIngameScript.Scripts
             if (prevCommand.HasValue) DCommand = (Command - prevCommand.Value) * UpdateFrequency;
             ICommand += Command * (1.0f / UpdateFrequency);
             Clamp(ref ICommand, IMax);
-            Thrusters.SetThrust((Command + DGain * DCommand + IGain * ICommand) * I.M44);
+            Vector3 sumCmd = Command + DGain * DCommand + IGain * ICommand;
+            Vector3 gCmd = Vector3.TransformNormal(sumCmd, MatrixD.Transpose(Grid.WorldMatrix.GetOrientation()));
+            Thrusters.SetThrust(gCmd * I.M44);
             prevCommand = Command;
 
         }
         static void Clamp(ref Vector3 v, float max)
-        { //Clamp a vector to maintain the direction, but impose a maximum magnitude 
+        { //Clamp a vector to maintain the direction, but impose a maximum magnitude   
             if (v.Length() > max) { v.Normalize(); v = v * max; }
         }
 
-        /// <summary>
-        /// Function for computing the inertia of a CubeGrid. Returns the Moment
-        /// of Inertia (about the CoM) matrix, Center of Mass (offset from
-        /// cubegrid origin), and the total mass.
-        /// </summary>
-        /// <param name="grid"></param>
-        /// <returns></returns>
+        /// <summary>  
+        /// Function for computing the inertia of a CubeGrid. Returns the Moment  
+        /// of Inertia (about the CoM) matrix, Center of Mass (offset from  
+        /// cubegrid origin), and the total mass.  
+        /// </summary>  
+        /// <param name="grid"></param>  
+        /// <returns></returns>  
         public static Matrix Inertia(IMyCubeGrid grid)
-        {//computes a matrix containing the moment of inertia (about CoM), CoM, and TotalMass
+        {//computes a matrix containing the moment of inertia (about CoM), CoM, and TotalMass  
             Vector3I gridMin = grid.Min;
             Vector3I gridMax = grid.Max;
 
@@ -411,7 +611,7 @@ namespace SpaceEngineersIngameScript.Scripts
             {
                 IMySlimBlock c = grid.GetCubeBlock(itr.Current);
                 if (c != null && c.Position == itr.Current)
-                { //prevent double counting blocks which span multiple positions
+                { //prevent double counting blocks which span multiple positions  
                     IMyCubeBlock b = c.FatBlock;
                     Vector3 sz = Vector3.One * gridsize;
                     if (b != null) sz = (b.Max - b.Min) * gridsize;
@@ -423,7 +623,7 @@ namespace SpaceEngineersIngameScript.Scripts
 
                     FirstMassMoment += r * mass;
 
-                    //moment of inertia from point mass
+                    //moment of inertia from point mass  
                     SecondMassMoment.M11 += (rr - r.X * r.X) * mass;
                     SecondMassMoment.M22 += (rr - r.Y * r.Y) * mass;
                     SecondMassMoment.M33 += (rr - r.Z * r.Z) * mass;
@@ -431,7 +631,7 @@ namespace SpaceEngineersIngameScript.Scripts
                     SecondMassMoment.M13 += -(r.X * r.Z) * mass;
                     SecondMassMoment.M23 += -(r.Y * r.Z) * mass;
 
-                    //momemnt of inertia from solid cube
+                    //momemnt of inertia from solid cube  
                     float cubefactor = mass / 12.0f;
                     SecondMassMoment.M11 += cubefactor * (sz.Y * sz.Y + sz.Z * sz.Z);
                     SecondMassMoment.M22 += cubefactor * (sz.X * sz.X + sz.Z * sz.Z);
@@ -442,7 +642,7 @@ namespace SpaceEngineersIngameScript.Scripts
             Vector3 CoM = FirstMassMoment / TotalMass;
             float CoMSq = CoM.Dot(CoM);
             MatrixD I = SecondMassMoment;
-            //translate second moment of intertia tensor to be about the CoM, rather than the cubegrid origin
+            //translate second moment of intertia tensor to be about the CoM, rather than the cubegrid origin  
             I.M11 += (CoMSq - CoM.X * CoM.X) * TotalMass;
             I.M22 += (CoMSq - CoM.Y * CoM.Y) * TotalMass;
             I.M33 += (CoMSq - CoM.Z * CoM.Z) * TotalMass;
@@ -452,10 +652,44 @@ namespace SpaceEngineersIngameScript.Scripts
             I.M21 = I.M12;
             I.M31 = I.M13;
             I.M32 = I.M23;
-            I.Translation = CoM; //since we have extra space in the matrix, stick the CoM in the otherwise unused 4th column
-            I.M44 = TotalMass; //since we have extra space, stick the total mass in the 44 element
+            I.Translation = CoM; //since we have extra space in the matrix, stick the CoM in the otherwise unused 4th column  
+            I.M44 = TotalMass; //since we have extra space, stick the total mass in the 44 element  
             return I;
         }
     }
+}
 
+[TestClass()]
+public class test_PositionPlanner
+{
+    [TestMethod()]
+    public void test_Segment()
+    {
+        PositionPlanner.Waypoint init = new PositionPlanner.Waypoint(Vector3.UnitX, Vector3D.Zero);
+        PositionPlanner.Waypoint final = new PositionPlanner.Waypoint(Vector3.UnitY, Vector3D.Zero);
+
+        PositionPlanner.PathSegment ps = new PositionPlanner.PathSegment(init, final, 5, 1);
+
+        List<Vector3D> positions = new List<Vector3D>();
+
+        for (double t = 0.0; t < ps.dt; t += .1)
+        {
+            positions.Add(ps.Position(t));
+        }
+
+    }
+    [TestMethod()]
+    public void test_planner()
+    {
+        PositionPlanner pp = new PositionPlanner(new PositionPlanner.Waypoint(Vector3.UnitX, Vector3D.Zero));
+        List<PositionPlanner.Waypoint> WaypointList = new List<PositionPlanner.Waypoint>();
+        pp.waypoints = new StackAsEnumerator<PositionPlanner.Waypoint>(WaypointList);
+        WaypointList.Add(new PositionPlanner.Waypoint(Vector3D.UnitY, Vector3D.Zero));
+
+        List<Vector3D> positions = new List<Vector3D>();
+        for (double t = 0.0; t < 20; t += .1)
+        {
+            positions.Add(pp.NextPosition(.1));
+        }
+    }
 }
