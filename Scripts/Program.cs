@@ -22,7 +22,7 @@ namespace SpaceEngineersIngameScript.Scripts
         const string RADAR_DISPLAY_NAME = "Radar LCD";
         const string SENSOR_NAME = "Sensor";
         const string SPOTTER_NAME = "Camera sp";
-
+          
         LidarTracker lidarsystem;
         RadarDisplay radardisplay;
         IMySensorBlock sensor;

@@ -13,6 +13,7 @@ using VRage.Game.ModAPI.Ingame; // VRage.Game.dll
 using SpaceEngineers.Game.ModAPI.Ingame; // SpacenEngineers.Game.dll
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Collections;
+using SpaceEngineersIngameScript.Scripts;
 
 namespace SpaceEngineersIngameScript.Scripts
 {
@@ -108,6 +109,12 @@ namespace SpaceEngineersIngameScript.Scripts
             Vector2I bSC_unclipped = new Vector2I();
             NDCToSC(bNDC, ref bSC_unclipped);
             canvas.move(bSC_unclipped);
+        }
+
+        private static Vector2 depthgradient(ref Vector2I sc1, ref float d1, ref Vector2I sc2, ref float d2)
+        {
+            Vector2 depthgrad = sc2 - sc1;
+            return depthgrad * (d2 - d1) / depthgrad.LengthSquared();
         }
 
         public void rect(BoundingBox box)
@@ -226,7 +233,6 @@ namespace SpaceEngineersIngameScript.Scripts
         public readonly int width;
         public readonly int height;
         private char c = rgb(7, 7, 7);
-        private char background = rgb(0, 0, 0);
 
         private char[][] data;
         private float[,] depth;
@@ -244,7 +250,7 @@ namespace SpaceEngineersIngameScript.Scripts
             depth = new float[p.Y, p.X];
             for (int i = 0; i < height; i++)
             {
-                data[i] = (new String(background, p.X)).ToCharArray();
+                data[i] = (new String(rgb(0,0,0), p.X)).ToCharArray();
                 for (int j = 0; j < width; j++)
                 {
                     depth[i, j] = 100.0f;
@@ -311,7 +317,7 @@ namespace SpaceEngineersIngameScript.Scripts
             return slug.ToString();
         }
 
-        public void clear()
+        public void clear(char background)
         {
             for (int i = 0; i < height; i++)
             {
@@ -321,6 +327,11 @@ namespace SpaceEngineersIngameScript.Scripts
                     depth[i, j] = 100f;
                 }
             }
+        }
+
+        public void clear(byte r, byte g, byte b)
+        {
+            clear(rgb(r, g, b));
         }
 
         public void FlushToDisplay(IMyTextPanel Panel)
@@ -351,6 +362,14 @@ namespace SpaceEngineersIngameScript.Scripts
             }
         }
 
+        public void triangle(Vector2I v2, Vector2I v3)
+        {
+            TrianglePointGenerator tri = new TrianglePointGenerator(pos, v2, v3);
+            do
+                set(tri.Pt);
+            while (tri.Advance());
+        }
+
         public void line(Vector2I p)
         {
             Vector2 start = new Vector2(((float)pos.X) / width, ((float)pos.Y) / height);
@@ -365,49 +384,11 @@ namespace SpaceEngineersIngameScript.Scripts
 
         private void line_Unclipped(Vector2I target)
         {
-            int x, y, t, deltaX, deltaY, incrementX, incrementY, pdx, pdy, ddx, ddy, es, el, err;
-            Vector2I origin = pos;
-            deltaX = target.X - origin.X;
-            deltaY = target.Y - origin.Y;
-
-            incrementX = Math.Sign(deltaX);
-            incrementY = Math.Sign(deltaY);
-            if (deltaX < 0) deltaX = -deltaX;
-            if (deltaY < 0) deltaY = -deltaY;
-
-            if (deltaX > deltaY)
+            var gen = new BresenhamLineGenerator(pos, target);
+            do
             {
-                pdx = incrementX; pdy = 0;
-                ddx = incrementX; ddy = incrementY;
-                es = deltaY; el = deltaX;
-            }
-            else
-            {
-                pdx = 0; pdy = incrementY;
-                ddx = incrementX; ddy = incrementY;
-                es = deltaX; el = deltaY;
-            }
-            x = origin.X;
-            y = origin.Y;
-            err = el / 2;
-            set(new Vector2I(x, y));
-
-            for (t = 0; t < el; ++t)
-            {
-                err -= es;
-                if (err < 0)
-                {
-                    err += el;
-                    x += ddx;
-                    y += ddy;
-                }
-                else
-                {
-                    x += pdx;
-                    y += pdy;
-                }
-                set(new Vector2I(x, y));
-            }
+                set(gen.Pt);
+            } while (gen.Advance());
         }
 
         public void rect(Vector2I p)
@@ -418,6 +399,14 @@ namespace SpaceEngineersIngameScript.Scripts
             line(new Vector2I(0, -p.Y));
         }
 
+        public char getPixel(int r, int c)
+        {
+            return data[r][c];
+        }
+
+#if DEBUG
+        public System.Drawing.Bitmap Bitmap { get{ return canvasExtension.toBitMap(this); } }
+#endif
     }
 
     /// <summary>
@@ -823,7 +812,7 @@ namespace SpaceEngineersIngameScript.Scripts
 
         public void DrawDisplay(Matrix viewpoint, LidarTracker tracker)
         {
-            canvas.clear();
+            canvas.clear(0,0,0);
             radarmodel.TargetTransform = Matrix.Invert(viewpoint) * View;
             updateRadarModelTargets(tracker);
             scene.draw(draw3);
@@ -923,4 +912,275 @@ namespace SpaceEngineersIngameScript.Scripts
         }
     }
 
+    public struct BresenhamLineGenerator: IComparable<BresenhamLineGenerator>
+    {
+        int t;
+        Vector2I delta;
+        int pdx, pdy;
+        int ddx, ddy;
+        int es, el;
+        int err;
+
+        Vector2I p;
+        public Vector2I Pt;
+
+        public BresenhamLineGenerator(Vector2I start, Vector2I stop)
+        {
+            delta = stop - start;
+
+            int incrementX = Math.Sign(delta.X);
+            int incrementY = Math.Sign(delta.Y);
+            if (delta.X < 0) delta.X = -delta.X;
+            if (delta.Y < 0) delta.Y = -delta.Y;
+
+            if (delta.X > delta.Y)
+            {
+                pdx = incrementX; pdy = 0;
+                ddx = incrementX; ddy = incrementY;
+                es = delta.Y; el = delta.X;
+            }
+            else
+            {
+                pdx = 0; pdy = incrementY;
+                ddx = incrementX; ddy = incrementY;
+                es = delta.X; el = delta.Y;
+            }
+
+            err = el / 2;
+            t = 0;
+            p = start;
+            Pt = p;
+        }
+        public Boolean Advance()
+        {
+
+            err -= es;
+            if (err < 0)
+            {
+                err += el;
+                p.X += ddx;
+                p.Y += ddy;
+            }
+            else
+            {
+                p.X += pdx;
+                p.Y += pdy;
+            }
+            Pt = p;
+
+            t++;
+            
+            return t-1 < el;
+        }
+
+        //compares line generators by angle (me cross other) compared to 0
+        int IComparable<BresenhamLineGenerator>.CompareTo(BresenhamLineGenerator other)
+        {
+            return ((long)other.delta.Y * delta.X - (long)other.delta.X * delta.Y).CompareTo(0);
+        }
+    }
+
+    public struct TrianglePointGenerator
+    {
+        Vector2I v1;
+        Vector2I v2;
+        Vector2I v3;
+
+        public TrianglePointGenerator(Vector2I a, Vector2I b, Vector2I c)
+        {
+            v1 = a;
+            v2 = b;
+            v3 = c;
+            //sort by x coordinate
+            if (v1.X > v2.X) swap(ref v1, ref v2);
+            if (v1.X > v3.X) swap(ref v1, ref v3);
+            if (v2.X > v3.X) swap(ref v2, ref v3);
+
+            longleg = new BresenhamLineGenerator(v1, v3);
+            shortleg = new BresenhamLineGenerator(v1, v2);
+            longlegYSmaller = ((long)(v1.Y - v3.Y) * (v2.X - v1.X) + (long)(v3.X - v1.X) * (v2.Y - v1.Y)) > 0;
+            lastShortLeg = false;
+
+            p = v1;
+            start = v1;
+            stop = v1;
+            line = p.X;
+
+            Pt = v1;
+            
+        }
+
+        BresenhamLineGenerator shortleg;
+        BresenhamLineGenerator longleg;
+        bool longlegYSmaller;
+        bool lastShortLeg;
+
+        int line;
+        Vector2I start;
+        Vector2I stop;
+
+        Vector2I p;
+        public Vector2I Pt;
+        public bool Advance()
+        {
+            p.Y++;
+            bool advancing = true;
+            if (p.Y > stop.Y)
+                advancing = advanceLine();
+            Pt = p;
+            return advancing || (p.X==v3.X & p.Y==v3.Y);
+        }
+        private bool advanceLine()
+        {
+            line++;
+            bool advancing;
+            if (longlegYSmaller) {
+                do
+                {
+                    if (longleg.Pt.Y < start.Y | longleg.Pt.X > start.X) start = longleg.Pt;
+                    advancing = longleg.Advance();
+                } while (advancing & longleg.Pt.X < line);
+
+                do
+                {
+                    if (shortleg.Pt.Y > stop.Y | shortleg.Pt.X > stop.X) stop = shortleg.Pt;
+                    advancing = advanceShortLeg();
+                } while (advancing & shortleg.Pt.X < line);
+            } else
+            {
+                do
+                {
+                    if (longleg.Pt.Y > stop.Y | longleg.Pt.X > stop.X) stop = longleg.Pt;
+                    advancing = longleg.Advance();
+                } while (advancing & longleg.Pt.X < line);
+
+                do
+                {
+                    if (shortleg.Pt.Y < start.Y | shortleg.Pt.X > start.X) start = shortleg.Pt;
+                    advancing = advanceShortLeg();
+                } while (advancing & shortleg.Pt.X < line);
+            }
+            p = start;
+            return advancing;
+        }
+
+        private bool advanceShortLeg()
+        {
+            bool advance = shortleg.Advance();
+            if (!advance & !lastShortLeg)
+            {
+                lastShortLeg = true;
+                shortleg = new BresenhamLineGenerator(v2, v3);
+                advance = true;
+            }
+            return advance;
+        }
+
+        static void swap(ref Vector2I a, ref Vector2I b) { var tmp = a; a = b; b = tmp; }
+    }
+        
+    }
+
+
+public static class canvasExtension
+{
+    public static System.Drawing.Bitmap toBitMap(this Canvas c)
+    {
+        var bitmap = new System.Drawing.Bitmap(c.width, c.height);
+        for (int i=0;i<c.width;i++)
+            for (int j = 0; j < c.height; j++)
+            {
+                char cpixel = c.getPixel(i, j);
+
+                //(char)(0xe100 + (r << 6) + (g << 3) + b)
+                byte r = (byte)((cpixel- 0xe100) >> 6 & 7);
+                byte g = (byte)((cpixel - 0xe100) >> 3 & 7);
+                byte b = (byte) ((cpixel - 0xe100) & 7);
+
+                System.Drawing.Color pixel = System.Drawing.Color.FromArgb(
+                    r * 36 + r * 109 / 255,
+                    g * 36 + g * 109 / 255, 
+                    b * 36 + b * 109 / 255);
+                bitmap.SetPixel(i,j,pixel);
+            }
+
+        return bitmap;
+    }
 }
+
+[TestClass()]
+public class test_canvas
+{
+    
+    [TestMethod()]
+    public void test_line()
+    {
+        Canvas c = new Canvas(new Vector2I(320, 320));
+        c.clear(0,0,0);
+        c.move(new Vector2I(100,100));
+        c.setColor(0, 0, 7);
+        c.line(new Vector2I(200, 140));
+        c.move(new Vector2I(150, 150));
+        c.setColor(6, 0, 0);
+        c.circle(100);
+        c.setColor(0, 6, 0);
+        c.triangle(new Vector2I(170, 150), new Vector2I(150, 170));
+        System.Drawing.Bitmap bmp = c.Bitmap;
+    }
+
+    [TestMethod()]
+    public void test_TrianglePointGenerator()
+    {
+        var bmp = new System.Drawing.Bitmap(1000, 1000);
+        System.Drawing.Graphics.FromImage(bmp).Clear(System.Drawing.Color.Black);
+
+        var a = new Vector2I(7, 13);
+        var b = new Vector2I(47, 50);
+        var c = new Vector2I(97, 89);
+        setPixel(bmp, System.Drawing.Color.Red, a);
+        setPixel(bmp, System.Drawing.Color.Green, b);
+        setPixel(bmp, System.Drawing.Color.Blue, c);
+        var tri = new TrianglePointGenerator(a, b, c);
+
+        do
+        {
+            setPixel(bmp, System.Drawing.Color.White, tri.Pt);
+        } while (tri.Advance());
+      }
+
+    private static void setPixel( System.Drawing.Bitmap bmp, System.Drawing.Color c, Vector2I pt)
+    {
+        for (int i = 0; i < 10; i++)
+            for (int j = 0; j < 10; j++)
+                bmp.SetPixel(pt.X*10 + i, pt.Y*10 + j, c);
+    }
+
+    [TestMethod()]
+    public void test_BresenhamLineGenerator()
+    {
+        var bmp = new System.Drawing.Bitmap(100, 100);
+        System.Drawing.Graphics.FromImage(bmp).Clear(System.Drawing.Color.Black);
+
+        var a = new Vector2I(3, 1);
+        var b = new Vector2I(4, 7);
+        setPixel(bmp, System.Drawing.Color.Red, a);
+        setPixel(bmp, System.Drawing.Color.Green, b);
+        var line = new BresenhamLineGenerator(a, b);
+
+        do
+        {
+            setPixel(bmp, System.Drawing.Color.White, line.Pt);
+        } while (line.Advance());
+    }
+
+    [TestMethod()]
+    public void test_Draw3()
+    {
+        var canvas = new Canvas(new Vector2I(320, 320));
+        var draw3 = new Draw3(canvas, Vector2I.Zero, Vector2I.One * 320);
+
+        draw3.triangle()
+
+    }
+}
+

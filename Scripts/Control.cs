@@ -18,7 +18,7 @@ using SpaceEngineersIngameScript.Scripts;
 
 namespace SpaceEngineersIngameScript.Scripts
 {
-
+    
     public class Autopilot
     {
         public Action<string> LogDelegate;
@@ -64,53 +64,66 @@ namespace SpaceEngineersIngameScript.Scripts
             Vector3? errP = null;
             float? errA = null;
             Quaternion? cmdA = null;
-            UpdateEnabled();
             UpdateSegment();
-            cmdA = CurrentAttSegment.Position(CurrentSegmentTime);
-            cmdP = CurrentPosSegment.Position(CurrentSegmentTime) + Vector3D.Transform(PC.I.Translation, cmdA.Value);
+            UpdateEnabled();
+            if (CurrentSegment != null) {
+                cmdA = CurrentAttSegment.Position(CurrentSegmentTime);
+                cmdP = CurrentPosSegment.Position(CurrentSegmentTime) + Vector3D.Transform(PC.I.Translation, cmdA.Value);
+            }
             if (Enabled)
             {
                 errP = PC.Update(cmdP.Value);
                 errA = AC.Update(cmdA.Value);
             }
-            Log("CmdP: [{0:0.00}]", cmdP);
-            Log("ErrP: [{0:0.00}]", errP);
-            Log("CmdA: [{0:0.00}]", cmdA);
-            Log("ErrA: [{0:0.00}]", errA);
+            Log("CmdP: {0}", cmdP?.ToString("0.00"));
+            Log("ErrP: {0}", errP?.ToString("0.00"));
+            Log("CmdA: {0}", cmdA?.ToStringAxisAngle("0.00"));
+            Log("ErrA: {0}", errA?.ToString("0.00"));
         }
 
         void UpdateSegment()
         {
             CurrentSegmentTime += UpdatePeriod;
+
             if (CurrentSegment == null || CurrentSegmentTime > CurrentPosSegment.dt | CurrentSegmentTime > CurrentAttSegment.dt)
+                AdvanceSegment();
+        }
+        void AdvanceSegment()
+        {
+            if (PathPlanner != null)
             {
-                Log("Generating Next Segment, Now: {0:0.0}", CurrentSegmentTime);
-                if (PathPlanner != null)
+                if (CurrentSegment==null || !Enabled)
+                    CurrentSegment = CoastSegment();
+                CurrentSegment = PathPlanner(CurrentSegment, CurrentSegmentTime);
+                Log("Generating New Segment, Now: {0:0.0}", CurrentSegmentTime);
+                if (CurrentSegment != null)
                 {
-                    IToolPathSegment NextSegment = PathPlanner(CurrentSegment, CurrentSegmentTime);
-                    if (NextSegment == null)
-                    {
-                        CurrentSegment = stopSegment();
-                        pathplanner = null;
-                    }
-                    else
-                        CurrentSegment = NextSegment;
+                    Log("New Segment:");
+                    Log("Pos: {0}", CurrentPosSegment.Final.Position.ToString("0.00"));
+                    Log("Vel: {0}", CurrentPosSegment.Final.Velocity.ToString("0.00"));
+                    Log("");
+                    Log("Fwd: {0}", CurrentAttSegment.Final.Position.Forward.ToString("0.00"));
+                    Log(" Up: {0}", CurrentAttSegment.Final.Position.Up.ToString("0.00"));
+                    Log("AVe: {0}", CurrentAttSegment.Final.Velocity.ToString("0.00"));
+                    Log("  T: {0}", CurrentAttSegment.dt.ToString("0.000"));
                 }
                 else
-                    CurrentSegment = stopSegment();
-                CurrentSegmentTime = 0;
-                Log("New Segment:");
-                Log("Pos: [{0:0.00}]", CurrentPosSegment.Final.Position);
-                Log("Vel: [{0:0.00}]", CurrentPosSegment.Final.Velocity);
-                Log("");
-                Log("Fwd: [{0:0.00}]", CurrentAttSegment.Final.Position.Forward);
-                Log(" Up: [{0:0.00}]", CurrentAttSegment.Final.Position.Up);
-                Log("AVe: [{0:0.00}]", CurrentAttSegment.Final.Velocity);
-                Log("  T:   {0:0.000}", CurrentAttSegment.dt);
+                {
+                    PathPlanner = null;
+                    Log("New Segment null, disabling autopilot");
+                }
             }
+            else
+                CurrentSegment = null;
+
+            if (CurrentSegment == null)
+                Enabled = false;
+
+            CurrentSegmentTime = 0;
+
         }
 
-        IToolPathSegment stopSegment()
+        IToolPathSegment CoastSegment()
         {
             Log("Generating Stop Segment");
             return new ToolPathSegment(new PositionWaypoint(Grid.WorldMatrix.Translation, Vector3D.Zero),
@@ -251,7 +264,7 @@ namespace SpaceEngineersIngameScript.Scripts
         }
         public VelocityT Velocity(double t)
         {
-            if (t > dt)
+            if (t < dt)
                 return Initial.InterpolateVelocity(Initial.Extrapolate(t), Initial.Velocity,
                     Final.Extrapolate(dt - t), Final.Velocity,
                     Interp(t), dInterp(t));
@@ -554,7 +567,7 @@ namespace SpaceEngineersIngameScript.Scripts
         public bool Enabled
         {
             get { return _enabled; }
-            set { if (value) Enable(); else Disable(); _enabled = value; }
+            set { if (value) Enable(); else { Disable();  DCommandFilt = Vector3.Zero; } _enabled = value; }
         }
         bool _enabled = false;
         /// <summary>       
@@ -623,10 +636,12 @@ namespace SpaceEngineersIngameScript.Scripts
         }
         Vector3? prevCommand = Vector3.Zero;
         Vector3 ICommand = Vector3.Zero;
+        Vector3 DCommandFilt = Vector3.Zero;
         void Command(Vector3 Command)
         {
             Vector3 DCommand = Vector3.Zero;
             if (prevCommand.HasValue) DCommand = (Command - prevCommand.Value) * UpdateFrequency;
+            DCommandFilt += .1f * (DCommand - DCommandFilt);
             ICommand += Command * (1.0f / UpdateFrequency);
             Clamp(ref ICommand, IMax);
             Gyros.SetAngularVelocity(Command + DGain * DCommand + IGain * ICommand);
@@ -759,7 +774,7 @@ namespace SpaceEngineersIngameScript.Scripts
         public bool Enabled
         {
             get { return _enabled; }
-            set { if (!value) Thrusters.SetThrust(Vector3.Zero); _enabled = value; }
+            set { if (!value) { Thrusters.SetThrust(Vector3.Zero); DCommandFilt = Vector3.Zero; } _enabled = value;}
         }
         bool _enabled = true;
         public float UpdateFrequency = 60.0f;
@@ -792,10 +807,12 @@ namespace SpaceEngineersIngameScript.Scripts
         }
         Vector3? prevCommand = Vector3.Zero;
         Vector3 ICommand = Vector3.Zero;
+        Vector3 DCommandFilt = Vector3.Zero;
         void Command(Vector3 Command)
         {
             Vector3 DCommand = Vector3.Zero;
             if (prevCommand.HasValue) DCommand = (Command - prevCommand.Value) * UpdateFrequency;
+            DCommandFilt += .2f * (DCommand - DCommandFilt);
             ICommand += Command * (1.0f / UpdateFrequency);
             Clamp(ref ICommand, IMax);
             Vector3 sumCmd = Command + DGain * DCommand + IGain * ICommand;
@@ -879,62 +896,64 @@ namespace SpaceEngineersIngameScript.Scripts
 
 }
 
-public class ToolPathProgram : MyGridProgram
+namespace SpaceEngineersIngameScript.Scripts.ToothPathProgram
 {
-    //test program for AutoPilot
-    //to use, rename constructor to "Program" and copy class internals and dependencies.
-    Autopilot AP;
-
-    public ToolPathProgram()
+    public class Program : MyGridProgram
     {
-        Echo("Init!");
-        List<IMyGyro> gyros = new List<IMyGyro>();
-        GridTerminalSystem.GetBlocksOfType<IMyGyro>(gyros);
+        //test program for AutoPilot
+        //to use, rename constructor to "Program" and copy class internals and dependencies.
+        Autopilot AP;
 
-        List<IMyThrust> thrusters = new List<IMyThrust>();
-        GridTerminalSystem.GetBlocksOfType<IMyThrust>(thrusters);
+        public Program()
+        {
+            Echo("Init!");
+            List<IMyGyro> gyros = new List<IMyGyro>();
+            GridTerminalSystem.GetBlocksOfType<IMyGyro>(gyros);
 
-        AP = new Autopilot(thrusters, gyros, Me.CubeGrid);
+            List<IMyThrust> thrusters = new List<IMyThrust>();
+            GridTerminalSystem.GetBlocksOfType<IMyThrust>(thrusters);
 
-        AP.AC.SetGainZieglerNichols(60.0f, .5f);
+            AP = new Autopilot(thrusters, gyros, Me.CubeGrid);
 
-        AP.PC.Gain = .5f;
-        AP.LogDelegate = Echo;
-        AP.Enabled = true;
-        Echo("~Init!");
-    }
+            AP.AC.SetGainZieglerNichols(60.0f, .5f);
 
-    long i = 0;
-    public void Main(string argument)
-    {
-        Echo("Main");
+            AP.PC.Gain = .5f;
+            AP.LogDelegate = Echo;
+            AP.Enabled = true;
+            Echo("~Init!");
+        }
 
-        if (argument != null & argument != "")
-            HandleArgument(argument);
-        AP.Update();
-        if (Me.CubeGrid.WorldMatrix.Translation.Length() > 200)
-            AP.Enabled = false;
-        i++;
-        Echo("~Main");
-    }
+        long i = 0;
+        public void Main(string argument)
+        {
+            Echo("Main");
 
-    void HandleArgument(string arg)
-    {
-        string[] tok = arg.Split(',');
-        Vector3D tgt = new Vector3D(double.Parse(tok[0]), double.Parse(tok[1]), double.Parse(tok[2]));
-        Vector3D old = Me.CubeGrid.WorldMatrix.Translation;
-        Vector3D up = Vector3D.UnitY;//Me.CubeGrid.WorldMatrix.Up;
-        MatrixD target = MatrixD.Invert(MatrixD.CreateLookAt(Me.CubeGrid.WorldMatrix.Translation, tgt, up));
-        Echo("");
-        Echo(tgt.ToString());
-        List<MatrixD> wp = new List<MatrixD>();
-        wp.Add(target);
-        target.Translation = tgt;
-        wp.Add(target);
-        AP.PathPlanner = new WaypointsPath(wp).GeneratePathSegment;
+            if (argument != null & argument != "")
+                HandleArgument(argument);
+            AP.Update();
+            if (Me.CubeGrid.WorldMatrix.Translation.Length() > 200)
+                AP.Enabled = false;
+            i++;
+            Echo("~Main");
+        }
+
+        void HandleArgument(string arg)
+        {
+            string[] tok = arg.Split(',');
+            Vector3D tgt = new Vector3D(double.Parse(tok[0]), double.Parse(tok[1]), double.Parse(tok[2]));
+            Vector3D old = Me.CubeGrid.WorldMatrix.Translation;
+            Vector3D up = Vector3D.UnitY;//Me.CubeGrid.WorldMatrix.Up;
+            MatrixD target = MatrixD.Invert(MatrixD.CreateLookAt(Me.CubeGrid.WorldMatrix.Translation, tgt, up));
+            Echo("");
+            Echo(tgt.ToString());
+            List<MatrixD> wp = new List<MatrixD>();
+            wp.Add(target);
+            target.Translation = tgt;
+            wp.Add(target);
+            AP.PathPlanner = new WaypointsPath(wp).GeneratePathSegment;
+        }
     }
 }
-
 [TestClass()]
 public class test_PositionPlanner
 {

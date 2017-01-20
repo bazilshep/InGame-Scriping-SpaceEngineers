@@ -38,6 +38,8 @@
     <Compile Include="Scripts\Drawing.cs" />
     <Compile Include="Scripts\Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Scripts\spotter.cs" />
+    <Compile Include="Scripts\taldeen_inv_manager.cs" />
     <Compile Include="Scripts\Targeting.cs" />
     <Compile Include="Scripts\TargetTracking.cs" />
   </ItemGroup>
@@ -56,6 +58,7 @@
       <HintPath>..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\SpaceEngineers\Bin64\SpaceEngineers.Game.dll</HintPath>
     </Reference>
     <Reference Include="System" />
+    <Reference Include="System.Drawing" />
     <Reference Include="VRage">
       <HintPath>..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\SpaceEngineers\Bin64\VRage.dll</HintPath>
     </Reference>
