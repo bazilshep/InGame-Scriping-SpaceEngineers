@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using VRageMath; // VRage.Math.dll
+using SpaceEngineersIngameScript.Control;
 
 namespace SpaceEngineersIngameScript.Targeting
 {

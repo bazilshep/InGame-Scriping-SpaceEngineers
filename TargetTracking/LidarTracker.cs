@@ -1,18 +1,9 @@
-﻿using System;
+﻿using Sandbox.ModAPI.Ingame; // Sandbox.Common.dll
+using System;
 using System.Collections.Generic;
-using VRageMath; // VRage.Math.dll
-using VRage.Game; // VRage.Game.dll
-using System.Text;
-using Sandbox.ModAPI.Interfaces; // Sandbox.Common.dll
-using Sandbox.ModAPI.Ingame; // Sandbox.Common.dll
-using Sandbox.Game.EntityComponents; // Sandbox.Game.dll
-using VRage.Game.Components; // VRage.Game.dll
-using VRage.Collections; // VRage.Library.dll
-using VRage.Game.ObjectBuilders.Definitions; // VRage.Game.dll
 using VRage.Game.ModAPI.Ingame; // VRage.Game.dll
-using SpaceEngineers.Game.ModAPI.Ingame; // SpacenEngineers.Game.dll
-using Microsoft.VisualStudio.TestTools.UnitTesting;
-using System.Collections;
+using VRageMath; // VRage.Math.dll
+using SpaceEngineersIngameScript.Util;
 
 namespace SpaceEngineersIngameScript.TargetTracking
 {

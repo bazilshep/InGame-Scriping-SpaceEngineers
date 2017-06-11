@@ -1,18 +1,10 @@
-﻿using System;
+﻿using Sandbox.ModAPI.Ingame; // Sandbox.Common.dll
+using System;
 using System.Collections.Generic;
 using VRageMath; // VRage.Math.dll
-using VRage.Game; // VRage.Game.dll
-using System.Text;
-using Sandbox.ModAPI.Interfaces; // Sandbox.Common.dll
-using Sandbox.ModAPI.Ingame; // Sandbox.Common.dll
-using Sandbox.Game.EntityComponents; // Sandbox.Game.dll
-using VRage.Game.Components; // VRage.Game.dll
-using VRage.Collections; // VRage.Library.dll
-using VRage.Game.ObjectBuilders.Definitions; // VRage.Game.dll
-using VRage.Game.ModAPI.Ingame; // VRage.Game.dll
-using SpaceEngineers.Game.ModAPI.Ingame; // SpacenEngineers.Game.dll
-using Microsoft.VisualStudio.TestTools.UnitTesting;
-using System.Collections;
+using SpaceEngineersIngameScript.TargetTracking;
+using SpaceEngineersIngameScript.Drawing.Radar;
+
 namespace SpaceEngineersIngameScript.Scripts
 {
     class LIDARTrackerProgram : MyGridProgram
@@ -104,7 +96,7 @@ namespace SpaceEngineersIngameScript.Scripts
                         target += u * r * Math.Cos(theta) + w * r * Math.Sin(theta);
                     }
                     var rtn = lidarsystem.PingPosition(target);
-                    if (!rtn.Item1 | rtn.Item2 != null | checkComplexity(Runtime))
+                    if (!rtn.Item1 | rtn.Item2 != null)
                     {
                         //Log(t.ToString("0.0") + " " + (rtn.Item2==null?"null":rtn.Item2.ToString()));         
                         break;
@@ -113,12 +105,6 @@ namespace SpaceEngineersIngameScript.Scripts
                 lidarsystem.logdelegate = Log;
             }
             iter++;
-        }
-
-        bool checkComplexity(IMyGridProgramRuntimeInfo f)
-        {
-            return f.CurrentInstructionCount > f.MaxInstructionCount * .7 |
-                       f.CurrentMethodCallCount > f.MaxMethodCallCount * .7;
         }
 
         void Main_Tick()

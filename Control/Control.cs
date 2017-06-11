@@ -14,7 +14,7 @@ using SpaceEngineers.Game.ModAPI.Ingame; // SpacenEngineers.Game.dll
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Collections;
 
-using SpaceEngineersIngameScript.Scripts;
+using SpaceEngineersIngameScript.Control;
 
 
 namespace SpaceEngineersIngameScript.Scripts.ToothPathProgram
