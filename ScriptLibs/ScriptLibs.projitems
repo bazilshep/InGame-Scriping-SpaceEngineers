@@ -1,0 +1,50 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <MSBuildAllProjects>$(MSBuildAllProjects);$(MSBuildThisFileFullPath)</MSBuildAllProjects>
+    <HasSharedItems>true</HasSharedItems>
+    <SharedGUID>61eba249-19f3-48b6-a25b-a4cee90168ba</SharedGUID>
+  </PropertyGroup>
+  <PropertyGroup Label="Configuration">
+    <Import_RootNamespace>IngameScript</Import_RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)Control\AttitudeController.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Control\AttitudePathSegment.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Control\AttitudeWaypoint.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Control\Autopilot.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Control\Control.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Control\CosinePathSegment.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Control\GyroGroup.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Control\IPathSegment.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Control\IToolPathSegment.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Control\PositionController.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Control\PositionPathSegment.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Control\PositionWaypoint.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Control\StaticToolPathSegment.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Control\ThrusterGroup.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Control\ToothPathSegment.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Control\Waypoint.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Control\WaypointsPath.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Drawing\Cube.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Drawing\Frame3D.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Drawing\Sprites.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Logger.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Targeting\GatlingTurret.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Targeting\InteriorTurret.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Targeting\MissileTurret.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Targeting\PMath.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Targeting\ShipWeapon.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Targeting\Targetable.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Targeting\Trajectory1.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Targeting\Trajectory3.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Targeting\Turret.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)TargetTracking\LidarPool.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)TargetTracking\LidarTracker.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)TargetTracking\Ratio.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)TargetTracking\TargetPingQueue.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)TargetTracking\TrackedEntity.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)TargetTracking\TrackedEntityCollection.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Util.cs" />
+  </ItemGroup>
+</Project>
