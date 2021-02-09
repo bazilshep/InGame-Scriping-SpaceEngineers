@@ -16,6 +16,7 @@ using VRage.Game.ModAPI.Ingame;
 using VRage.Game.ModAPI.Ingame.Utilities;
 using VRage.Game.ObjectBuilders.Definitions;
 using VRageMath;
+using IngameScript.Drawing;
 
 namespace IngameScript
 {
@@ -23,21 +24,16 @@ namespace IngameScript
     {
 
         IMyShipController cockpit;
-        IMyTextSurface _drawingSurface;
-        RectangleF _viewport;
-        Matrix projection;
+        IMyTextSurface cockpit_display;
+        
+
+
 
         public Program()
         {
 
             cockpit = (IMyShipController)this.GridTerminalSystem.GetBlockWithName("Fighter Cockpit");
-            var surf_provider = (IMyTextSurfaceProvider)this.GridTerminalSystem.GetBlockWithName("Fighter Cockpit");
-
-            _drawingSurface = surf_provider.GetSurface(0);
-
-            projection = Matrix.CreatePerspectiveFieldOfView(90f * 3.1415f / 180f, _viewport.Height / _viewport.Width, .01f, 100f) *
-                Matrix.CreateScale(.5f * _viewport.Width, .5f * _viewport.Height, 1) *
-                Matrix.CreateTranslation(.5f * _viewport.Width, .5f * _viewport.Height, 0);
+            cockpit_display = ((IMyTextSurfaceProvider)cockpit).GetSurface(0);
 
         }
 

@@ -80,14 +80,11 @@ namespace IngameScript
                 _drawingSurface.TextureSize
             );
 
-            scene.view = Matrix.CreateRotationY((float)Math.PI) *
+            scene.SetProjection(_viewport, 90f);
+            scene.SetView(
+                Matrix.CreateRotationY((float)Math.PI) *
                 Matrix.CreateScale(.1f) *
-                Matrix.CreateTranslation(0, 0, 1);
-            scene.projection =
-                Matrix.CreatePerspectiveFieldOfView(90f * (float)Math.PI / 180f, _viewport.Height / _viewport.Width, .01f, 100f) *
-                Matrix.CreateScale(.5f * _viewport.Width, .5f * _viewport.Height, 1) *
-                Matrix.CreateTranslation(.5f * _viewport.Width, .5f * _viewport.Height, 0);
-            scene.viewprojection = scene.view * scene.projection;
+                Matrix.CreateTranslation(0, 0, 1));
 
             PrepareTextSurfaceForSprites(_drawingSurface);
 

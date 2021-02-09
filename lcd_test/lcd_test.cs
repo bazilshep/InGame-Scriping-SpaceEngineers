@@ -26,12 +26,6 @@ namespace IngameScript
 
         IMyShipController cockpit;
         IMyTextSurface _drawingSurface;
-        RectangleF _viewport;
-        Matrix projection;
-        
-        double _t = 0;
-
-        IMyTextSurface _kb;
 
         Frame3D scene = new Frame3D();
         Cube cube = new Cube();
@@ -57,22 +51,16 @@ namespace IngameScript
             var surf_provider = (IMyTextSurfaceProvider)this.GridTerminalSystem.GetBlockWithName("Control Stations 2");
 
             _drawingSurface = surf_provider.GetSurface(0);
-            _kb = Me.GetSurface(1);
 
             Runtime.UpdateFrequency = UpdateFrequency.Update1;
 
-            _viewport = new RectangleF(
-                Vector2.Zero,
-                _drawingSurface.TextureSize
-            );
+            scene.SetProjection(
+                new RectangleF(
+                    Vector2.Zero,
+                    _drawingSurface.TextureSize)
+                , 90f);
 
-            scene.projection = Matrix.CreatePerspectiveFieldOfView(90f * 3.1415f / 180f, _viewport.Height / _viewport.Width, .01f, 100f) *
-                Matrix.CreateScale(.5f * _viewport.Width, .5f * _viewport.Height, 1) *
-                Matrix.CreateTranslation(.5f * _viewport.Width, .5f * _viewport.Height, 0);
-            scene.viewprojection = scene.view * scene.projection;
-
-            PrepareTextSurfaceForSprites(_drawingSurface);
-            PrepareTextSurfaceForSprites(_kb);
+            Frame3D.PrepareTextSurfaceForSprites(_drawingSurface);
 
             cube.color = new Color(255, 30, 30);
             cube2.color = new Color(30, 30, 255);
@@ -83,7 +71,6 @@ namespace IngameScript
         // Main Entry Point
         public void Main(string argument, UpdateType updateType)
         {
-            _t += this.Runtime.TimeSinceLastRun.TotalSeconds;
 
             //var console = this.Me.GetSurface(0);
             //console.WriteText("Main",false);
@@ -108,9 +95,8 @@ namespace IngameScript
 
             var markercolor = new Color(0, 100, 0);
             var sz = new Vector2(100f, 100f);
-            var ident = Matrix.Identity;
             
-            scene.AddSprite(Sprites.Circle, ref projection, ref ident, ref sz, ref v, ref markercolor);
+            scene.AddSprite(Sprites.Circle, ref scene.viewprojection, ref scene.view, ref sz, ref v, ref markercolor);
 
             var frame = _drawingSurface.DrawFrame();
 
@@ -122,11 +108,7 @@ namespace IngameScript
 
         }
 
-        public void PrepareTextSurfaceForSprites(IMyTextSurface textSurface)
-        {
-            textSurface.ContentType = ContentType.SCRIPT;
-            textSurface.Script = "";
-        }
+
 
     }
 }

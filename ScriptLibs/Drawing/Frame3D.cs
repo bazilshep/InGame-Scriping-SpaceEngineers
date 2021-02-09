@@ -39,6 +39,23 @@ namespace IngameScript.Drawing
 
         public Matrix viewprojection;
 
+        public void SetProjection( RectangleF viewport, float verticalFov)
+        {
+
+            projection = Matrix.CreatePerspectiveFieldOfView(90f * 3.1415926536f / 180f, viewport.Height / viewport.Width, .01f, 100f) *
+                Matrix.CreateScale(.5f * viewport.Width, .5f * viewport.Height, 1) *
+                Matrix.CreateTranslation(.5f * viewport.Width + viewport.X, .5f * viewport.Height + viewport.Y, 0);
+
+            viewprojection = view * projection;
+
+        }
+
+        public void SetView( Matrix view)
+        {
+            this.view = view;
+            viewprojection = view * projection;
+        }
+
         public Vector3 LightDirection = new Vector3(0, -.1, -1);
 
         MySprite default_sprite = new MySprite(SpriteType.TEXTURE, Sprites.RightTriangle, new Vector2(0f, 0f), new Vector2(0f, 0f), new Color(0, 0, 0));
@@ -187,6 +204,11 @@ namespace IngameScript.Drawing
             sprites_count = 0;
         }
 
+        public static void PrepareTextSurfaceForSprites(IMyTextSurface textSurface)
+        {
+            textSurface.ContentType = ContentType.SCRIPT;
+            textSurface.Script = "";
+        }
     }
 
     public struct sprite_with_depth
